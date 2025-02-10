@@ -2089,7 +2089,7 @@ Scene_Shop.prototype.buyingPrice = function() {
 };
 
 Scene_Shop.prototype.sellingPrice = function() {
-    return Math.floor(this._item.price / 2);
+    return Math.floor(this._item.price);
 };
 
 //-----------------------------------------------------------------------------

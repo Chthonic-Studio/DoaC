@@ -1,15 +1,26 @@
 /*:
- * @plugindesc v1.0 Defines shop types and their items, prices, stock levels, and restocking rates. 
- * Adds restocking logic to shops based on time intervals or events.
- * @author Ulises Rubino
+ * @plugindesc v1.0 Configurable shop system with dynamic pricing and restocking logic. 
+ * Allows configuration through the Plugin Manager and event comments.
+ * @author YourName
+ *
+ * @param ShopTypes
+ * @type struct<ShopType>[]
+ * @desc Define the different types of shops and their items, stock levels, and restocking rates.
+ * @default []
  *
  * @help
- * This plugin defines different shop types and their items, prices, stock levels,
- * and restocking rates. It also adds a mechanism to restock items based on time intervals.
+ * This plugin defines different shop types and their items, stock levels, restocking rates, 
+ * and includes a mechanism to dynamically calculate buy and sell prices.
  * 
- * Shop Types:
- * - Blacksmith: Sells weapons and armors.
- * - Bakery: Sells food items.
+ * Shop Types are configured through the Plugin Manager. Each shop type can have its own 
+ * set of items, initial stock levels, base prices, restock rates, and restock amounts.
+ * 
+ * Prices are calculated using the following formulas:
+ * Buy Price = Base Price * (Location Demand + Location Economic Power) * Event Modifiers * Stock Modifier
+ * Sell Price = Base Price * (1 / (Location Demand + Location Economic Power)) * Event Modifiers * Inverse Stock Modifier
+ * 
+ * Location Demand, Location Economic Power, and Event Modifiers are variables specified 
+ * through event comments in each shop.
  * 
  * To set the shop type before opening the shop, use the plugin command:
  *   SetShopType [ShopType]
@@ -18,12 +29,12 @@
  *
  * To manually trigger restocking, use the plugin command:
  *   RestockShops
- *
+ * 
  * ============================================================================
  * Terms of Use
  * ============================================================================
  * Free for use in both commercial and non-commercial projects.
- * Please give credit to Ulises Rubino.
+ * Please give credit to YourName.
  * ============================================================================
  *
  * ============================================================================
@@ -34,295 +45,80 @@
  * ============================================================================
  */
 
+/*~struct~ShopType:
+ * @param name
+ * @type text
+ * @desc Name of the shop type.
+ * @default Shop
+ *
+ * @param items
+ * @type struct<Item>[]
+ * @desc List of items sold in the shop.
+ * @default []
+ *
+ * @param restockRate
+ * @type number
+ * @desc Restock rate in days.
+ * @default 1
+ *
+ * @param restockAmount
+ * @type number
+ * @desc Percentage of each item's base stock to restock.
+ * @default 30
+ *
+ * @param economicPowerVar
+ * @type variable
+ * @desc Variable ID for the Location Economic Power.
+ * @default 1
+ *
+ * @param eventModifiersVar
+ * @type variable
+ * @desc Variable ID for the Event Modifiers.
+ * @default 2
+ */
+
+/*~struct~Item:
+ * @param id
+ * @type number
+ * @desc ID of the item.
+ * @default 1
+ *
+ * @param baseStock
+ * @type number
+ * @desc Base stock of the item.
+ * @default 10
+ *
+ * @param demandVar
+ * @type variable
+ * @desc Variable ID for the Location Demand of the item.
+ * @default 3
+ */
+
 var ShopConfig = ShopConfig || {};
 
-ShopConfig.Types = {
-    Blacksmith: {
-        items: [1, 2, 3], // Item IDs for weapons and armors
-        basePrices: {
-            1: 100, // Base price for item ID 1
-            2: 200, // Base price for item ID 2
-            3: 300  // Base price for item ID 3
-        },
-        stock: {
-            1: 10,  // Initial stock for item ID 1
-            2: 20,  // Initial stock for item ID 2
-            3: 5    // Initial stock for item ID 3
-        },
-        restockRate: 1, // Restock every in-game day
-        restockAmount: {
-            1: 5,  // Restock amount for item ID 1
-            2: 5,  // Restock amount for item ID 2
-            3: 2   // Restock amount for item ID 3
-        }
-    },
-    Bakery: {
-        items: [4, 5, 6], // Item IDs for food items
-        basePrices: {
-            4: 50,  // Base price for item ID 4
-            5: 30,  // Base price for item ID 5
-            6: 20   // Base price for item ID 6
-        },
-        stock: {
-            4: 50,  // Initial stock for item ID 4
-            5: 40,  // Initial stock for item ID 5
-            6: 30   // Initial stock for item ID 6
-        },
-        restockRate: 1, // Restock every in-game day
-        restockAmount: {
-            4: 10,  // Restock amount for item ID 4
-            5: 5,   // Restock amount for item ID 5
-            6: 5    // Restock amount for item ID 6
-        }
-    },
-    General_Store: {
-        items: [3, 4 , 5],
-        basePrices: {
-            3: 1,
-            4: 1,
-            5: 1
-        },
-        stock: {
-            3: 100,
-            4: 100,
-            5: 100
-        },
-        restockRate: 1,
-        restockAmount: {
-            3: 10,
-            4: 10,
-            5: 20
-        },
-        Apothecary: {
-            items: [7, 8, 9], // Item IDs for potions and medicines
-            basePrices: {
-                7: 50,  // Base price for item ID 7
-                8: 100, // Base price for item ID 8
-                9: 150  // Base price for item ID 9
-            },
-            stock: {
-                7: 20,  // Initial stock for item ID 7
-                8: 15,  // Initial stock for item ID 8
-                9: 10   // Initial stock for item ID 9
-            },
-            restockRate: 1, // Restock every in-game day
-            restockAmount: {
-                7: 5,   // Restock amount for item ID 7
-                8: 3,   // Restock amount for item ID 8
-                9: 2    // Restock amount for item ID 9
-            }
-        },
-        Fish_Shop: {
-            items: [10, 11, 12], // Item IDs for fish
-            basePrices: {
-                10: 20, // Base price for item ID 10
-                11: 30, // Base price for item ID 11
-                12: 40  // Base price for item ID 12
-            },
-            stock: {
-                10: 50, // Initial stock for item ID 10
-                11: 40, // Initial stock for item ID 11
-                12: 30  // Initial stock for item ID 12
-            },
-            restockRate: 1, // Restock every in-game day
-            restockAmount: {
-                10: 10, // Restock amount for item ID 10
-                11: 8,  // Restock amount for item ID 11
-                12: 6   // Restock amount for item ID 12
-            }
-        },
-        Port: {
-            items: [13, 14, 15], // Item IDs for ship supplies
-            basePrices: {
-                13: 50, // Base price for item ID 13
-                14: 100, // Base price for item ID 14
-                15: 150  // Base price for item ID 15
-            },
-            stock: {
-                13: 20, // Initial stock for item ID 13
-                14: 15, // Initial stock for item ID 14
-                15: 10  // Initial stock for item ID 15
-            },
-            restockRate: 1, // Restock every in-game day
-            restockAmount: {
-                13: 5,   // Restock amount for item ID 13
-                14: 3,   // Restock amount for item ID 14
-                15: 2    // Restock amount for item ID 15
-            }
-        },
-        Tavern: {
-            items: [16, 17, 18], // Item IDs for drinks and food
-            basePrices: {
-                16: 10, // Base price for item ID 16
-                17: 20, // Base price for item ID 17
-                18: 30  // Base price for item ID 18
-            },
-            stock: {
-                16: 50, // Initial stock for item ID 16
-                17: 40, // Initial stock for item ID 17
-                18: 30  // Initial stock for item ID 18
-            },
-            restockRate: 1, // Restock every in-game day
-            restockAmount: {
-                16: 10, // Restock amount for item ID 16
-                17: 8,  // Restock amount for item ID 17
-                18: 6   // Restock amount for item ID 18
-            }
-        },
-        Farm: {
-            items: [19, 20, 21], // Item IDs for crops and seeds
-            basePrices: {
-                19: 5,  // Base price for item ID 19
-                20: 10, // Base price for item ID 20
-                21: 15  // Base price for item ID 21
-            },
-            stock: {
-                19: 100, // Initial stock for item ID 19
-                20: 80,  // Initial stock for item ID 20
-                21: 60   // Initial stock for item ID 21
-            },
-            restockRate: 1, // Restock every in-game day
-            restockAmount: {
-                19: 20, // Restock amount for item ID 19
-                20: 15, // Restock amount for item ID 20
-                21: 10  // Restock amount for item ID 21
-            }
-        },
-        Crafting: {
-            items: [22, 23, 24], // Item IDs for crafting materials
-            basePrices: {
-                22: 50, // Base price for item ID 22
-                23: 100, // Base price for item ID 23
-                24: 150  // Base price for item ID 24
-            },
-            stock: {
-                22: 30, // Initial stock for item ID 22
-                23: 25, // Initial stock for item ID 23
-                24: 20  // Initial stock for item ID 24
-            },
-            restockRate: 1, // Restock every in-game day
-            restockAmount: {
-                22: 5,   // Restock amount for item ID 22
-                23: 4,   // Restock amount for item ID 23
-                24: 3    // Restock amount for item ID 24
-            }
-        },
-        Smuggler: {
-            items: [25, 26, 27], // Item IDs for contraband items
-            basePrices: {
-                25: 200, // Base price for item ID 25
-                26: 300, // Base price for item ID 26
-                27: 400  // Base price for item ID 27
-            },
-            stock: {
-                25: 5,  // Initial stock for item ID 25
-                26: 3,  // Initial stock for item ID 26
-                27: 2   // Initial stock for item ID 27
-            },
-            restockRate: 1, // Restock every in-game day
-            restockAmount: {
-                25: 1,  // Restock amount for item ID 25
-                26: 1,  // Restock amount for item ID 26
-                27: 1   // Restock amount for item ID 27
-            }
-        },
-        Caravan: {
-            items: [28, 29, 30], // Item IDs for trade goods
-            basePrices: {
-                28: 100, // Base price for item ID 28
-                29: 150, // Base price for item ID 29
-                30: 200  // Base price for item ID 30
-            },
-            stock: {
-                28: 10, // Initial stock for item ID 28
-                29: 8,  // Initial stock for item ID 29
-                30: 6   // Initial stock for item ID 30
-            },
-            restockRate: 1, // Restock every in-game day
-            restockAmount: {
-                28: 2,  // Restock amount for item ID 28
-                29: 2,  // Restock amount for item ID 29
-                30: 2   // Restock amount for item ID 30
-            }
-        },
-        Specialty: {
-            items: [31, 32, 33], // Item IDs for specialty items
-            basePrices: {
-                31: 500, // Base price for item ID 31
-                32: 600, // Base price for item ID 32
-                33: 700  // Base price for item ID 33
-            },
-            stock: {
-                31: 3,  // Initial stock for item ID 31
-                32: 3,  // Initial stock for item ID 32
-                33: 3   // Initial stock for item ID 33
-            },
-            restockRate: 1, // Restock every in-game day
-            restockAmount: {
-                31: 1,  // Restock amount for item ID 31
-                32: 1,  // Restock amount for item ID 32
-                33: 1   // Restock amount for item ID 33
-            }
-        },
-        Luxury: {
-            items: [34, 35, 36], // Item IDs for luxury items
-            basePrices: {
-                34: 1000, // Base price for item ID 34
-                35: 1200, // Base price for item ID 35
-                36: 1500  // Base price for item ID 36
-            },
-            stock: {
-                34: 2,  // Initial stock for item ID 34
-                35: 2,  // Initial stock for item ID 35
-                36: 2   // Initial stock for item ID 36
-            },
-            restockRate: 1, // Restock every in-game day
-            restockAmount: {
-                34: 1,  // Restock amount for item ID 34
-                35: 1,  // Restock amount for item ID 35
-                36: 1   // Restock amount for item ID 36
-            }
-        },
-        Arcane_Shop: {
-            items: [37, 38, 39], // Item IDs for magical items
-            basePrices: {
-                37: 2000, // Base price for item ID 37
-                38: 2500, // Base price for item ID 38
-                39: 3000  // Base price for item ID 39
-            },
-            stock: {
-                37: 1,  // Initial stock for item ID 37
-                38: 1,  // Initial stock for item ID 38
-                39: 1   // Initial stock for item ID 39
-            },
-            restockRate: 1, // Restock every in-game day
-            restockAmount: {
-                37: 1,  // Restock amount for item ID 37
-                38: 1,  // Restock amount for item ID 38
-                39: 1   // Restock amount for item ID 39
-            }
-        },
-        Armorer: {
-            items: [40, 41, 42], // Item IDs for armor pieces
-            basePrices: {
-                40: 500, // Base price for item ID 40
-                41: 600, // Base price for item ID 41
-                42: 700  // Base price for item ID 42
-            },
-            stock: {
-                40: 5,  // Initial stock for item ID 40
-                41: 4,  // Initial stock for item ID 41
-                42: 3   // Initial stock for item ID 42
-            },
-            restockRate: 1, // Restock every in-game day
-            restockAmount: {
-                40: 2,  // Restock amount for item ID 40
-                41: 2,  // Restock amount for item ID 41
-                42: 2   // Restock amount for item ID 42
-            }
-        }
-    }
-};
+//=============================================================================
+// Plugin Parameters
+//=============================================================================
+
+ShopConfig.Parameters = PluginManager.parameters('DoaC_ShopConfig');
+ShopConfig.ShopTypes = JSON.parse(ShopConfig.Parameters['ShopTypes'] || '[]').map(JSON.parse);
+
+ShopConfig.Types = ShopConfig.ShopTypes.reduce((acc, shopType) => {
+    acc[shopType.name] = {
+        items: shopType.items.map(item => ({
+            id: Number(item.id),
+            baseStock: Number(item.baseStock),
+            stock: Number(item.baseStock),
+            demandVar: Number(item.demandVar)
+        })),
+        restockRate: Number(shopType.restockRate),
+        restockAmount: Number(shopType.restockAmount),
+        economicPowerVar: Number(shopType.economicPowerVar),
+        eventModifiersVar: Number(shopType.eventModifiersVar)
+    };
+    return acc;
+}, {});
+
 //=============================================================================
 // Game_Temp
 //=============================================================================
@@ -338,22 +134,28 @@ Game_Temp.prototype.setShopType = function(type) {
 var _Game_System_initialize = Game_System.prototype.initialize;
 Game_System.prototype.initialize = function() {
     _Game_System_initialize.call(this);
-    this._shopRestockTimer = 0;
+    this._shopRestockTimers = {};
 };
 
 var _Game_System_onAfterLoad = Game_System.prototype.onAfterLoad;
 Game_System.prototype.onAfterLoad = function() {
     _Game_System_onAfterLoad.call(this);
-    if (this._shopRestockTimer === undefined) {
-        this._shopRestockTimer = 0;
+    if (this._shopRestockTimers === undefined) {
+        this._shopRestockTimers = {};
     }
 };
 
-Game_System.prototype.updateRestockTimer = function() {
-    this._shopRestockTimer++;
-    if (this._shopRestockTimer >= 1440) { // Assuming 1 game minute per frame, restock every in-game day (1440 minutes)
-        this._shopRestockTimer = 0;
-        ShopConfig.restockAllShops();
+Game_System.prototype.updateRestockTimers = function() {
+    for (var shopType in this._shopRestockTimers) {
+        if (this._shopRestockTimers.hasOwnProperty(shopType)) {
+            this._shopRestockTimers[shopType]++;
+            var restockRate = ShopConfig.Types[shopType].restockRate;
+            var restockTimerVar = $gameVariables.value($gameMap.event($gameTemp._eventId).event().meta.restockTimerVar) || restockRate;
+            if (this._shopRestockTimers[shopType] >= restockTimerVar) {
+                this._shopRestockTimers[shopType] = 0;
+                ShopConfig.restockShop(shopType);
+            }
+        }
     }
 };
 
@@ -373,12 +175,12 @@ ShopConfig.restockShop = function(shopType) {
     var shopConfig = ShopConfig.Types[shopType];
     if (!shopConfig) return;
 
-    for (var itemId in shopConfig.restockAmount) {
-        if (shopConfig.restockAmount.hasOwnProperty(itemId)) {
-            var restockAmount = shopConfig.restockAmount[itemId];
-            shopConfig.stock[itemId] = (shopConfig.stock[itemId] || 0) + restockAmount;
-        }
-    }
+    var restockModifierVar = $gameVariables.value($gameMap.event($gameTemp._eventId).event().meta.restockAmountModifierVar);
+    var restockModifier = restockModifierVar ? $gameVariables.value(restockModifierVar) : 1;
+
+    shopConfig.items.forEach(item => {
+        item.stock += Math.round(item.baseStock * (shopConfig.restockAmount / 100) * restockModifier);
+    });
 };
 
 //=============================================================================
@@ -390,6 +192,9 @@ Scene_Shop.prototype.prepare = function(goods, purchaseOnly) {
     _Scene_Shop_prepare.call(this, goods, purchaseOnly);
     this._shopType = $gameTemp.shopType || 'General';
     this._shopConfig = ShopConfig.Types[this._shopType] || {};
+    if (!$gameSystem._shopRestockTimers[this._shopType]) {
+        $gameSystem._shopRestockTimers[this._shopType] = 0;
+    }
 };
 
 Scene_Shop.prototype.doBuy = function(number) {
@@ -398,6 +203,18 @@ Scene_Shop.prototype.doBuy = function(number) {
     $gameParty.loseGold(price * number);
     $gameParty.gainItem(item, number);
     this.updateStock(item, -number);
+
+    // Update Location Economic Power
+    var economicPowerVar = this._shopConfig.economicPowerVar;
+    var economicPowerIncrease = price * number * 0.01;
+    $gameVariables.setValue(economicPowerVar, $gameVariables.value(economicPowerVar) + economicPowerIncrease);
+
+    // Update Location Demand
+    var demandVar = this._shopConfig.items.find(i => i.id === item.id).demandVar;
+    var baseStock = this._shopConfig.items.find(i => i.id === item.id).baseStock;
+    var remainingStock = this._shopConfig.items.find(i => i.id === item.id).stock;
+    var demandIncrease = Math.min(100, 100 * ((baseStock - remainingStock) / baseStock));
+    $gameVariables.setValue(demandVar, demandIncrease);
 };
 
 Scene_Shop.prototype.doSell = function(number) {
@@ -409,27 +226,31 @@ Scene_Shop.prototype.doSell = function(number) {
 };
 
 Scene_Shop.prototype.adjustedBuyPrice = function(item) {
-    var basePrice = this._shopConfig.basePrices[item.id] || item.price;
-    var stock = this._shopConfig.stock[item.id] || 0;
-    var demand = this.calculateDemand(item);
-    return Math.round(basePrice * demand / Math.max(1, stock));
+    var basePrice = item.price;
+    var stock = this._shopConfig.items.find(i => i.id === item.id).stock || 1;
+    var demand = $gameVariables.value($gameMap.event(this._eventId).event().meta.locationDemandVar) || 1;
+    var economicPower = $gameVariables.value($gameMap.event(this._eventId).event().meta.locationEconomicPowerVar) || 1;
+    var eventModifiers = $gameVariables.value($gameMap.event(this._eventId).event().meta.eventModifiersVar) || 1;
+    var stockModifier = 1 + (10 / (stock + 1));
+    return Math.round(basePrice * (demand + economicPower) * eventModifiers * stockModifier);
 };
 
 Scene_Shop.prototype.adjustedSellPrice = function(item) {
-    var basePrice = this._shopConfig.basePrices[item.id] || item.price;
-    var stock = this._shopConfig.stock[item.id] || 0;
-    var demand = this.calculateDemand(item);
-    return Math.round(basePrice * 0.5 * Math.max(1, stock) / demand);
-};
-
-Scene_Shop.prototype.calculateDemand = function(item) {
-    // Example calculation for demand; this can be customized
-    return 1 + Math.random() * 0.5;
+    var basePrice = item.price;
+    var stock = this._shopConfig.items.find(i => i.id === item.id).stock || 1;
+    var demand = $gameVariables.value($gameMap.event(this._eventId).event().meta.locationDemandVar) || 1;
+    var economicPower = $gameVariables.value($gameMap.event(this._eventId).event().meta.locationEconomicPowerVar) || 1;
+    var eventModifiers = $gameVariables.value($gameMap.event(this._eventId).event().meta.eventModifiersVar) || 1;
+    var inverseStockModifier = 1 + (10 / (this._shopConfig.items.find(i => i.id === item.id).baseStock - stock + 1));
+    var sellPrice = Math.round(basePrice * (1 / (demand + economicPower)) * eventModifiers * inverseStockModifier);
+    return Math.min(sellPrice, this.adjustedBuyPrice(item));
 };
 
 Scene_Shop.prototype.updateStock = function(item, amount) {
-    var stock = this._shopConfig.stock[item.id] || 0;
-    this._shopConfig.stock[item.id] = Math.max(0, stock + amount);
+    var shopItem = this._shopConfig.items.find(i => i.id === item.id);
+    if (shopItem) {
+        shopItem.stock = Math.max(0, shopItem.stock + amount);
+    }
 };
 
 //=============================================================================
@@ -453,5 +274,5 @@ Game_Interpreter.prototype.pluginCommand = function(command, args) {
 var _Scene_Map_update = Scene_Map.prototype.update;
 Scene_Map.prototype.update = function() {
     _Scene_Map_update.call(this);
-    $gameSystem.updateRestockTimer();
+    $gameSystem.updateRestockTimers();
 };
